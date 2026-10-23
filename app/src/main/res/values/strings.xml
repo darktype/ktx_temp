@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">KTX 자동예매</string>
+    <string name="loading">로딩 중...</string>
+    <string name="network_error_title">서버에 연결할 수 없습니다</string>
+    <string name="network_error_msg">NAS 서버 주소(darktype.synology.me:10111) 또는 네트워크 연결을 확인해주세요.</string>
+    <string name="retry">다시 시도</string>
+    <string name="settings_title">자동 로그인 설정</string>
+    <string name="auto_login_enabled">자동 로그인 사용</string>
+    <string name="clear_credentials">저장된 계정 정보 삭제</string>
+    <string name="credentials_cleared">저장된 계정 정보가 삭제되었습니다.</string>
+</resources>
