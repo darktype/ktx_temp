@@ -65,7 +65,7 @@ class AttendanceAlarmReceiver : BroadcastReceiver() {
 
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             val prefs = context.getSharedPreferences("tmoney_auto_prefs", Context.MODE_PRIVATE)
-            val h = prefs.getInt("alarm_hour", 9)
+            val h = prefs.getInt("alarm_hour", 7)
             val m = prefs.getInt("alarm_minute", 0)
             scheduleDailyAlarm(context, h, m)
             return
@@ -92,7 +92,7 @@ class AttendanceAlarmReceiver : BroadcastReceiver() {
         } finally {
             // 내일 알람 재설정
             val prefs = context.getSharedPreferences("tmoney_auto_prefs", Context.MODE_PRIVATE)
-            val h = prefs.getInt("alarm_hour", 9)
+            val h = prefs.getInt("alarm_hour", 7)
             val m = prefs.getInt("alarm_minute", 0)
             scheduleDailyAlarm(context, h, m)
             wakeLock.release()

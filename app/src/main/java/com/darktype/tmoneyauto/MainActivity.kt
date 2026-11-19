@@ -33,7 +33,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         val prefs = getSharedPreferences("tmoney_auto_prefs", Context.MODE_PRIVATE)
-        val hour = prefs.getInt("alarm_hour", 9)
+        if (!prefs.contains("alarm_hour")) {
+            prefs.edit().putInt("alarm_hour", 7).putInt("alarm_minute", 0).apply()
+            AttendanceAlarmReceiver.scheduleDailyAlarm(this, 7, 0)
+        }
+        val hour = prefs.getInt("alarm_hour", 7)
         val minute = prefs.getInt("alarm_minute", 0)
         val nasUrl = prefs.getString("nas_url", "https://darktype.synology.me:7878") ?: ""
 
@@ -66,7 +70,7 @@ class MainActivity : AppCompatActivity() {
         // 알람 시각 변경
         binding.btnChangeTime.setOnClickListener {
             val prefs = getSharedPreferences("tmoney_auto_prefs", Context.MODE_PRIVATE)
-            val curH = prefs.getInt("alarm_hour", 9)
+            val curH = prefs.getInt("alarm_hour", 7)
             val curM = prefs.getInt("alarm_minute", 0)
 
             TimePickerDialog(this, { _, hourOfDay, minute ->
