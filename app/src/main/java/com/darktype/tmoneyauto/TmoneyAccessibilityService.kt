@@ -226,7 +226,6 @@ class TmoneyAccessibilityService : AccessibilityService() {
         scheduledCheck = check
         handler.postDelayed(check, delayMs)
     }
-    }
 
     private fun handleResultPopup(root: AccessibilityNodeInfo) {
         val contentNodes = root.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/txt_contents1")
