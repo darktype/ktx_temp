@@ -1,12 +1,12 @@
 package com.darktype.tmoneyauto
 
 import android.app.TimePickerDialog
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.provider.Settings
 import android.text.TextUtils
 import android.widget.Toast
@@ -89,12 +89,16 @@ class MainActivity : AppCompatActivity() {
         // 테스트 실행
         binding.btnTestLaunch.setOnClickListener {
             val launchIntent = packageManager.getLaunchIntentForPackage("com.lgt.tmoney")
-            if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: Intent(Intent.ACTION_MAIN).apply {
+                    component = ComponentName("com.lgt.tmoney", "com.tmoney.activity.IntroActivity")
+                    addCategory(Intent.CATEGORY_LAUNCHER)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            try {
                 startActivity(launchIntent)
                 Toast.makeText(this, "모바일티머니 앱을 실행합니다...", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "기기에 모바일티머니 앱이 설치되어 있지 않습니다.", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "실행 실패: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }

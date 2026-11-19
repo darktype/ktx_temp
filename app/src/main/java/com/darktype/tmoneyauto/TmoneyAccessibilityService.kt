@@ -24,7 +24,7 @@ class TmoneyAccessibilityService : AccessibilityService() {
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Main)
-    private var lastClickTime = 0L
+    private var lastActionTime = 0L
     private var hasHandledToday = false
     private val handler = Handler(Looper.getMainLooper())
 
@@ -47,36 +47,46 @@ class TmoneyAccessibilityService : AccessibilityService() {
         if (!packageName.contains("tmoney")) return
 
         val now = System.currentTimeMillis()
-        if (now - lastClickTime < 1500) return // 디바운스
+        if (now - lastActionTime < 1200) return // 디바운스
 
-        // 1. 결과 팝업 확인 ("출석 미션 완료!" 또는 "적립되었습니다")
+        // 1. 배너 팝업 닫기 ("닫기" 또는 "오늘 다시 보지 않기")
+        val closeDialogNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/dialog_close")
+        if (closeDialogNodes.isNotEmpty()) {
+            lastActionTime = now
+            Log.i(TAG, "메인 배너 팝업 감지 -> 닫기 클릭")
+            clickNodeOrGesture(closeDialogNodes[0])
+            return
+        }
+
+        // 2. 출석 성공 팝업 확인 ("출석 미션 완료!" 또는 "적립되었습니다")
         val popupTitleNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/txt_title")
         val isPopupVisible = popupTitleNodes.any { it.text?.contains("출석") == true } ||
                 findNodeByTextOrDesc(rootNode, "출석 미션 완료") != null
 
         if (isPopupVisible) {
+            lastActionTime = now
             handleResultPopup(rootNode)
             return
         }
 
-        // 2. '출석하기' 버튼 탐색 및 자동 탭
+        // 3. AttendActivity: '출석하기' 버튼 탐색 및 자동 탭
         val attendButton = findNodeByTextOrDesc(rootNode, "출석하기")
         if (attendButton != null) {
-            lastClickTime = now
+            lastActionTime = now
             Log.i(TAG, "출석하기 버튼 감지됨 -> 클릭 시도")
             lastResultStatus = "출석하기 클릭 시도 중..."
-
             val clicked = clickNodeOrGesture(attendButton)
             Log.i(TAG, "출석 버튼 클릭 결과: $clicked")
             return
         }
 
-        // 3. 이미 출석 완료된 상태 감지 ("출석체크 완료" 스탬프 확인)
+        // 4. AttendActivity: 이미 출석 완료된 상태 감지 ("출석체크 완료" 스탬프 확인)
         val completedStamp = findNodeByTextOrDesc(rootNode, "출석체크 완료")
         val attendHeader = findNodeByTextOrDesc(rootNode, "출석체크")
         if (completedStamp != null && attendHeader != null && !hasHandledToday) {
             val hasAttendBtn = findNodeByTextOrDesc(rootNode, "출석하기") != null
             if (!hasAttendBtn) {
+                lastActionTime = now
                 hasHandledToday = true
                 lastResultStatus = "오늘 출석 이미 완료됨"
                 Log.i(TAG, "오늘자 출석이 이미 완료되어 있습니다.")
@@ -86,7 +96,35 @@ class TmoneyAccessibilityService : AccessibilityService() {
                 serviceScope.launch {
                     NasReporter.report(nasUrl, "already_done", "오늘 모바일티머니 출석체크가 이미 완료되어 있습니다.")
                 }
+                return
             }
+        }
+
+        // 5. MainEventActivity (이벤트 목록 화면): "모바일티머니 출석체크" 항목 클릭
+        val eventListHeader = findNodeByTextOrDesc(rootNode, "이벤트")
+        if (eventListHeader != null) {
+            val attendEventItem = findNodeByTextOrDesc(rootNode, "출석체크")
+            if (attendEventItem != null && !attendEventItem.text.toString().contains("완료")) {
+                lastActionTime = now
+                Log.i(TAG, "이벤트 목록에서 출석체크 배너 감지 -> 클릭")
+                clickNodeOrGesture(attendEventItem)
+                return
+            } else {
+                // 목록에 안 보이면 아래로 스크롤
+                lastActionTime = now
+                Log.i(TAG, "이벤트 목록 스크롤 탐색")
+                scrollDown()
+                return
+            }
+        }
+
+        // 6. MainActivity (홈 화면): 이벤트 아이콘(🎁) 클릭
+        val eventIconNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_home_header_event")
+        if (eventIconNodes.isNotEmpty()) {
+            lastActionTime = now
+            Log.i(TAG, "메인 홈 화면 감지 -> 이벤트(🎁) 버튼 클릭")
+            clickNodeOrGesture(eventIconNodes[0])
+            return
         }
     }
 
@@ -117,13 +155,22 @@ class TmoneyAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun scrollDown() {
+        val path = Path().apply {
+            moveTo(540f, 1600f)
+            lineTo(540f, 600f)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 300))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
+
     private fun clickNodeOrGesture(node: AccessibilityNodeInfo): Boolean {
-        // 1. 노드 자체 클릭
         if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
             return true
         }
 
-        // 2. 부모 노드 클릭
         var parent = node.parent
         while (parent != null) {
             if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
@@ -132,7 +179,6 @@ class TmoneyAccessibilityService : AccessibilityService() {
             parent = parent.parent
         }
 
-        // 3. 제스처(터치 좌표)로 직접 클릭
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
         if (bounds.width() > 0 && bounds.height() > 0) {
