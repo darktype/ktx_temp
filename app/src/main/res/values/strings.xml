@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">모바일티머니 자동출석</string>
+    <string name="accessibility_service_label">모바일티머니 자동출석 서비스</string>
+    <string name="accessibility_service_description">모바일티머니 앱의 출석체크 화면에서 출석하기 버튼을 자동으로 감지하고 클릭하여 출석을 완료합니다.</string>
+</resources>
