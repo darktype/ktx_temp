@@ -28,6 +28,8 @@ class TmoneyAccessibilityService : AccessibilityService() {
     private var lastActionTime = 0L
     private var hasHandledToday = false
     private val handler = Handler(Looper.getMainLooper())
+    private var scheduledCheck: Runnable? = null
+    private var scrollCount = 0
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -38,18 +40,34 @@ class TmoneyAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning = false
+        scheduledCheck?.let { handler.removeCallbacks(it) }
         Log.i(TAG, "모바일티머니 자동출석 접근성 서비스 종료됨")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val rootNode = rootInActiveWindow ?: return
         val packageName = event?.packageName?.toString() ?: ""
-
         if (!packageName.contains("tmoney")) return
 
         val now = System.currentTimeMillis()
-        if (now - lastActionTime < 1000) return // 디바운스 1초
+        val elapsed = now - lastActionTime
 
+        if (elapsed < 1200) {
+            // 디바운스 대기 중: 화면 전환 또는 렌더링이 진행 중일 수 있으므로 이전 예약 취소 후 재스케줄링
+            scheduledCheck?.let { handler.removeCallbacks(it) }
+            val check = Runnable {
+                val currentRoot = rootInActiveWindow ?: return@Runnable
+                try {
+                    processScreen(currentRoot, System.currentTimeMillis())
+                } catch (e: Exception) {
+                    Log.e(TAG, "지연 화면 처리 중 예외 발생: ${e.message}", e)
+                }
+            }
+            scheduledCheck = check
+            handler.postDelayed(check, (1200 - elapsed) + 200)
+            return
+        }
+
+        val rootNode = rootInActiveWindow ?: return
         try {
             processScreen(rootNode, now)
         } catch (e: Exception) {
@@ -80,10 +98,22 @@ class TmoneyAccessibilityService : AccessibilityService() {
             lastActionTime = now
             Log.i(TAG, "메인 배너 팝업 감지 -> [닫기] 클릭")
             clickNodeOrGesture(closeDialogNodes[0])
+            schedulePostActionCheck(1400)
             return
         }
 
-        // 3. AttendActivity: '출석하기' 버튼 탐색 및 자동 탭
+        // 3. 간편비밀번호 로그인 화면 (PayLoginActivity): 둘러보기 버튼이 있는 경우
+        val lookAroundBtn = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/btn_look_around").firstOrNull()
+            ?: findNodeByTextOrDesc(rootNode, "둘러보기")
+        if (lookAroundBtn != null) {
+            lastActionTime = now
+            Log.i(TAG, "로그인 화면 둘러보기 버튼 감지 -> 클릭")
+            clickNodeOrGesture(lookAroundBtn)
+            schedulePostActionCheck(1400)
+            return
+        }
+
+        // 4. AttendActivity: '출석하기' 버튼 탐색 및 자동 탭
         val attendButton = findNodeByTextOrDesc(rootNode, "출석하기")
         if (attendButton != null) {
             lastActionTime = now
@@ -91,10 +121,11 @@ class TmoneyAccessibilityService : AccessibilityService() {
             lastResultStatus = "출석하기 클릭 중..."
             val clicked = clickNodeOrGesture(attendButton)
             Log.i(TAG, "출석 버튼 클릭 결과: $clicked")
+            schedulePostActionCheck(1500)
             return
         }
 
-        // 4. AttendActivity: 이미 출석 완료된 상태 감지 ("출석체크 완료" 스탬프 확인)
+        // 5. AttendActivity: 이미 출석 완료된 상태 감지 ("출석체크 완료" 스탬프 확인)
         val completedStamp = findNodeByTextOrDesc(rootNode, "출석체크 완료")
         if (completedStamp != null && !hasHandledToday) {
             val hasAttendBtn = findNodeByTextOrDesc(rootNode, "출석하기") != null
@@ -115,7 +146,7 @@ class TmoneyAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 5. MainActivity (메인 홈 화면 감지 -> 🎁 이벤트 아이콘 클릭)
+        // 6. MainActivity (메인 홈 화면 감지 -> 🎁 이벤트 아이콘 클릭)
         // 메인 홈 화면의 고유 위젯들을 확인하여 홈 화면임을 정확히 판별
         val eventIconNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_home_header_event")
         val hasHomeCharge = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_home_tmoney_charge").isNotEmpty()
@@ -130,14 +161,16 @@ class TmoneyAccessibilityService : AccessibilityService() {
 
             if (targetEventBtn != null) {
                 lastActionTime = now
+                scrollCount = 0
                 Log.i(TAG, "🏠 메인 홈 화면 감지 -> 상단 🎁 [이벤트] 버튼 클릭")
                 lastResultStatus = "메인 홈 -> 이벤트 버튼 클릭"
                 clickNodeOrGesture(targetEventBtn)
+                schedulePostActionCheck(1400)
                 return
             }
         }
 
-        // 6. MainEventActivity (이벤트 목록 화면 감지 -> "모바일티머니 출석체크" 배너 클릭)
+        // 7. MainEventActivity (이벤트 목록 화면 감지 -> "모바일티머니 출석체크" 배너 클릭)
         val eventListNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_event_list")
         val isEventListScreen = eventListNodes.isNotEmpty() ||
                 (rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/tv_title").any { it.text?.contains("이벤트") == true } && !hasHomeCharge)
@@ -151,26 +184,19 @@ class TmoneyAccessibilityService : AccessibilityService() {
                     Log.i(TAG, "📋 이벤트 목록에서 [모바일티머니 출석체크] 배너 감지 -> 클릭")
                     lastResultStatus = "이벤트 목록 -> 출석체크 배너 클릭"
                     clickNodeOrGesture(attendEventItem)
+                    schedulePostActionCheck(1500)
                     return
                 }
-            } else {
-                // 목록에 보이지 않으면 아래로 스크롤하여 탐색
+            } else if (scrollCount < 8) {
+                // 목록에 보이지 않으면 아래로 스크롤하여 탐색 (최대 8회)
                 lastActionTime = now
-                Log.i(TAG, "이벤트 목록 스크롤 탐색 중...")
-                lastResultStatus = "이벤트 목록 스크롤 중..."
+                scrollCount++
+                Log.i(TAG, "이벤트 목록 스크롤 탐색 중... ($scrollCount/8)")
+                lastResultStatus = "이벤트 목록 스크롤 중 ($scrollCount/8)"
                 scrollDown()
+                schedulePostActionCheck(1500)
                 return
             }
-        }
-
-        // 7. 간편비밀번호 로그인 화면 (PayLoginActivity): 둘러보기 버튼이 있는 경우
-        val lookAroundBtn = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/btn_look_around").firstOrNull()
-            ?: findNodeByTextOrDesc(rootNode, "둘러보기")
-        if (lookAroundBtn != null) {
-            lastActionTime = now
-            Log.i(TAG, "로그인 화면 둘러보기 버튼 감지 -> 클릭")
-            clickNodeOrGesture(lookAroundBtn)
-            return
         }
 
         // 8. "확인" 또는 "닫기" 일반 다이얼로그 닫기
@@ -181,9 +207,25 @@ class TmoneyAccessibilityService : AccessibilityService() {
                 lastActionTime = now
                 Log.i(TAG, "재시작/로그인 안내 팝업 감지 -> 확인 클릭")
                 clickNodeOrGesture(dialogRight)
+                schedulePostActionCheck(1400)
                 return
             }
         }
+    }
+
+    private fun schedulePostActionCheck(delayMs: Long) {
+        scheduledCheck?.let { handler.removeCallbacks(it) }
+        val check = Runnable {
+            val root = rootInActiveWindow ?: return@Runnable
+            try {
+                processScreen(root, System.currentTimeMillis())
+            } catch (e: Exception) {
+                Log.e(TAG, "스케줄된 화면 처리 중 예외 발생: ${e.message}", e)
+            }
+        }
+        scheduledCheck = check
+        handler.postDelayed(check, delayMs)
+    }
     }
 
     private fun handleResultPopup(root: AccessibilityNodeInfo) {
