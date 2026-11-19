@@ -2,6 +2,7 @@ package com.darktype.tmoneyauto
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Handler
@@ -47,25 +48,38 @@ class TmoneyAccessibilityService : AccessibilityService() {
         if (!packageName.contains("tmoney")) return
 
         val now = System.currentTimeMillis()
-        if (now - lastActionTime < 1200) return // 디바운스
+        if (now - lastActionTime < 1000) return // 디바운스 1초
 
-        // 1. 배너 팝업 닫기 ("닫기" 또는 "오늘 다시 보지 않기")
+        try {
+            processScreen(rootNode, now)
+        } catch (e: Exception) {
+            Log.e(TAG, "onAccessibilityEvent 처리 중 예외 발생: ${e.message}", e)
+        }
+    }
+
+    private fun processScreen(rootNode: AccessibilityNodeInfo, now: Long) {
+        // 1. 출석 성공/결과 팝업 확인 ("출석 미션 완료!" 또는 "적립되었습니다")
+        val popupTitleNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/txt_title")
+        val isPopupVisible = popupTitleNodes.any { it.text?.contains("출석") == true } ||
+                findNodeByTextOrDesc(rootNode, "출석 미션 완료") != null ||
+                findNodeByTextOrDesc(rootNode, "적립되었습니다") != null
+
+        if (isPopupVisible) {
+            val closeBtn = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/btn_close").firstOrNull()
+                ?: findNodeByTextOrDesc(rootNode, "닫기")
+            if (closeBtn != null) {
+                lastActionTime = now
+                handleResultPopup(rootNode)
+                return
+            }
+        }
+
+        // 2. 메인 안내 팝업 또는 이벤트 배너 닫기 ("닫기" 또는 "오늘 다시 보지 않기")
         val closeDialogNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/dialog_close")
         if (closeDialogNodes.isNotEmpty()) {
             lastActionTime = now
-            Log.i(TAG, "메인 배너 팝업 감지 -> 닫기 클릭")
+            Log.i(TAG, "메인 배너 팝업 감지 -> [닫기] 클릭")
             clickNodeOrGesture(closeDialogNodes[0])
-            return
-        }
-
-        // 2. 출석 성공 팝업 확인 ("출석 미션 완료!" 또는 "적립되었습니다")
-        val popupTitleNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/txt_title")
-        val isPopupVisible = popupTitleNodes.any { it.text?.contains("출석") == true } ||
-                findNodeByTextOrDesc(rootNode, "출석 미션 완료") != null
-
-        if (isPopupVisible) {
-            lastActionTime = now
-            handleResultPopup(rootNode)
             return
         }
 
@@ -73,8 +87,8 @@ class TmoneyAccessibilityService : AccessibilityService() {
         val attendButton = findNodeByTextOrDesc(rootNode, "출석하기")
         if (attendButton != null) {
             lastActionTime = now
-            Log.i(TAG, "출석하기 버튼 감지됨 -> 클릭 시도")
-            lastResultStatus = "출석하기 클릭 시도 중..."
+            Log.i(TAG, "출석체크 화면 감지 -> [출석하기] 버튼 클릭 시도")
+            lastResultStatus = "출석하기 클릭 중..."
             val clicked = clickNodeOrGesture(attendButton)
             Log.i(TAG, "출석 버튼 클릭 결과: $clicked")
             return
@@ -82,8 +96,7 @@ class TmoneyAccessibilityService : AccessibilityService() {
 
         // 4. AttendActivity: 이미 출석 완료된 상태 감지 ("출석체크 완료" 스탬프 확인)
         val completedStamp = findNodeByTextOrDesc(rootNode, "출석체크 완료")
-        val attendHeader = findNodeByTextOrDesc(rootNode, "출석체크")
-        if (completedStamp != null && attendHeader != null && !hasHandledToday) {
+        if (completedStamp != null && !hasHandledToday) {
             val hasAttendBtn = findNodeByTextOrDesc(rootNode, "출석하기") != null
             if (!hasAttendBtn) {
                 lastActionTime = now
@@ -91,7 +104,7 @@ class TmoneyAccessibilityService : AccessibilityService() {
                 lastResultStatus = "오늘 출석 이미 완료됨"
                 Log.i(TAG, "오늘자 출석이 이미 완료되어 있습니다.")
 
-                val prefs = getSharedPreferences("tmoney_auto_prefs", MODE_PRIVATE)
+                val prefs = getSharedPreferences("tmoney_auto_prefs", Context.MODE_PRIVATE)
                 val nasUrl = prefs.getString("nas_url", "https://darktype.synology.me:7878") ?: ""
                 val userId = prefs.getString("nas_user_id", "") ?: ""
                 val password = prefs.getString("nas_password", "") ?: ""
@@ -102,31 +115,74 @@ class TmoneyAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 5. MainEventActivity (이벤트 목록 화면): "모바일티머니 출석체크" 항목 클릭
-        val eventListHeader = findNodeByTextOrDesc(rootNode, "이벤트")
-        if (eventListHeader != null) {
-            val attendEventItem = findNodeByTextOrDesc(rootNode, "출석체크")
-            if (attendEventItem != null && !attendEventItem.text.toString().contains("완료")) {
-                lastActionTime = now
-                Log.i(TAG, "이벤트 목록에서 출석체크 배너 감지 -> 클릭")
-                clickNodeOrGesture(attendEventItem)
-                return
+        // 5. MainActivity (메인 홈 화면 감지 -> 🎁 이벤트 아이콘 클릭)
+        // 메인 홈 화면의 고유 위젯들을 확인하여 홈 화면임을 정확히 판별
+        val eventIconNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_home_header_event")
+        val hasHomeCharge = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_home_tmoney_charge").isNotEmpty()
+        val hasHomeMileage = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_home_header_mileage").isNotEmpty()
+
+        if (eventIconNodes.isNotEmpty() || hasHomeCharge || hasHomeMileage) {
+            val targetEventBtn = if (eventIconNodes.isNotEmpty()) {
+                eventIconNodes[0]
             } else {
-                // 목록에 안 보이면 아래로 스크롤
+                findNodeByTextOrDesc(rootNode, "이벤트")
+            }
+
+            if (targetEventBtn != null) {
                 lastActionTime = now
-                Log.i(TAG, "이벤트 목록 스크롤 탐색")
+                Log.i(TAG, "🏠 메인 홈 화면 감지 -> 상단 🎁 [이벤트] 버튼 클릭")
+                lastResultStatus = "메인 홈 -> 이벤트 버튼 클릭"
+                clickNodeOrGesture(targetEventBtn)
+                return
+            }
+        }
+
+        // 6. MainEventActivity (이벤트 목록 화면 감지 -> "모바일티머니 출석체크" 배너 클릭)
+        val eventListNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_event_list")
+        val isEventListScreen = eventListNodes.isNotEmpty() ||
+                (rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/tv_title").any { it.text?.contains("이벤트") == true } && !hasHomeCharge)
+
+        if (isEventListScreen) {
+            val attendEventItem = findNodeByTextOrDesc(rootNode, "출석체크")
+            if (attendEventItem != null) {
+                val itemText = (attendEventItem.text?.toString() ?: "") + (attendEventItem.contentDescription?.toString() ?: "")
+                if (!itemText.contains("완료")) {
+                    lastActionTime = now
+                    Log.i(TAG, "📋 이벤트 목록에서 [모바일티머니 출석체크] 배너 감지 -> 클릭")
+                    lastResultStatus = "이벤트 목록 -> 출석체크 배너 클릭"
+                    clickNodeOrGesture(attendEventItem)
+                    return
+                }
+            } else {
+                // 목록에 보이지 않으면 아래로 스크롤하여 탐색
+                lastActionTime = now
+                Log.i(TAG, "이벤트 목록 스크롤 탐색 중...")
+                lastResultStatus = "이벤트 목록 스크롤 중..."
                 scrollDown()
                 return
             }
         }
 
-        // 6. MainActivity (홈 화면): 이벤트 아이콘(🎁) 클릭
-        val eventIconNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/main_home_header_event")
-        if (eventIconNodes.isNotEmpty()) {
+        // 7. 간편비밀번호 로그인 화면 (PayLoginActivity): 둘러보기 버튼이 있는 경우
+        val lookAroundBtn = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/btn_look_around").firstOrNull()
+            ?: findNodeByTextOrDesc(rootNode, "둘러보기")
+        if (lookAroundBtn != null) {
             lastActionTime = now
-            Log.i(TAG, "메인 홈 화면 감지 -> 이벤트(🎁) 버튼 클릭")
-            clickNodeOrGesture(eventIconNodes[0])
+            Log.i(TAG, "로그인 화면 둘러보기 버튼 감지 -> 클릭")
+            clickNodeOrGesture(lookAroundBtn)
             return
+        }
+
+        // 8. "확인" 또는 "닫기" 일반 다이얼로그 닫기
+        val dialogRight = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/dialog_right").firstOrNull()
+        if (dialogRight != null && dialogRight.text?.contains("확인") == true) {
+            val content = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/dialog_content").firstOrNull()?.text?.toString() ?: ""
+            if (content.contains("다시 시작") || content.contains("로그인")) {
+                lastActionTime = now
+                Log.i(TAG, "재시작/로그인 안내 팝업 감지 -> 확인 클릭")
+                clickNodeOrGesture(dialogRight)
+                return
+            }
         }
     }
 
@@ -150,7 +206,7 @@ class TmoneyAccessibilityService : AccessibilityService() {
             if (closeBtn != null) clickNodeOrGesture(closeBtn)
         }
 
-        val prefs = getSharedPreferences("tmoney_auto_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("tmoney_auto_prefs", Context.MODE_PRIVATE)
         val nasUrl = prefs.getString("nas_url", "https://darktype.synology.me:7878") ?: ""
         val userId = prefs.getString("nas_user_id", "") ?: ""
         val password = prefs.getString("nas_password", "") ?: ""
@@ -171,6 +227,20 @@ class TmoneyAccessibilityService : AccessibilityService() {
     }
 
     private fun clickNodeOrGesture(node: AccessibilityNodeInfo): Boolean {
+        // 1. 화면 실제 좌표(중심점)로 터치 제스처 디스패치 (가장 확실한 터치)
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (bounds.width() > 0 && bounds.height() > 0) {
+            val cx = bounds.centerX().toFloat()
+            val cy = bounds.centerY().toFloat()
+            val path = Path().apply { moveTo(cx, cy) }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+                .build()
+            dispatchGesture(gesture, null, null)
+        }
+
+        // 2. 접근성 ACTION_CLICK 동시 호출
         if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
             return true
         }
@@ -183,19 +253,7 @@ class TmoneyAccessibilityService : AccessibilityService() {
             parent = parent.parent
         }
 
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        if (bounds.width() > 0 && bounds.height() > 0) {
-            val cx = bounds.centerX().toFloat()
-            val cy = bounds.centerY().toFloat()
-            val path = Path().apply { moveTo(cx, cy) }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 100))
-                .build()
-            return dispatchGesture(gesture, null, null)
-        }
-
-        return false
+        return true
     }
 
     private fun findNodeByTextOrDesc(node: AccessibilityNodeInfo, query: String): AccessibilityNodeInfo? {
