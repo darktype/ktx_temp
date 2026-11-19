@@ -76,20 +76,20 @@ class TmoneyAccessibilityService : AccessibilityService() {
     }
 
     private fun processScreen(rootNode: AccessibilityNodeInfo, now: Long) {
-        // 1. 출석 성공/결과 팝업 확인 ("출석 미션 완료!" 또는 "적립되었습니다")
+        // 1. 출석 성공/결과 팝업 확인 ("오늘 미션 참여 완료!", "출석 미션 완료!" 또는 "적립되었습니다")
         val popupTitleNodes = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/txt_title")
-        val isPopupVisible = popupTitleNodes.any { it.text?.contains("출석") == true } ||
+        val closeBtn = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/btn_close").firstOrNull()
+            ?: findNodeByTextOrDesc(rootNode, "닫기")
+
+        val isPopupVisible = (popupTitleNodes.isNotEmpty() && closeBtn != null) ||
                 findNodeByTextOrDesc(rootNode, "출석 미션 완료") != null ||
+                findNodeByTextOrDesc(rootNode, "미션 참여 완료") != null ||
                 findNodeByTextOrDesc(rootNode, "적립되었습니다") != null
 
-        if (isPopupVisible) {
-            val closeBtn = rootNode.findAccessibilityNodeInfosByViewId("com.lgt.tmoney:id/btn_close").firstOrNull()
-                ?: findNodeByTextOrDesc(rootNode, "닫기")
-            if (closeBtn != null) {
-                lastActionTime = now
-                handleResultPopup(rootNode)
-                return
-            }
+        if (isPopupVisible && closeBtn != null) {
+            lastActionTime = now
+            handleResultPopup(rootNode)
+            return
         }
 
         // 2. 메인 안내 팝업 또는 이벤트 배너 닫기 ("닫기" 또는 "오늘 다시 보지 않기")
@@ -251,8 +251,10 @@ class TmoneyAccessibilityService : AccessibilityService() {
         val nasUrl = prefs.getString("nas_url", "https://darktype.synology.me:7878") ?: ""
         val userId = prefs.getString("nas_user_id", "") ?: ""
         val password = prefs.getString("nas_password", "") ?: ""
+        val statusType = if (rewardText.contains("내일도") || rewardText.contains("이미") || rewardText.contains("완료")) "already_done" else "checked_in"
+        val points = if (statusType == "checked_in") 1 else 0
         serviceScope.launch {
-            NasReporter.report(nasUrl, userId, password, "checked_in", rewardText, 1)
+            NasReporter.report(nasUrl, userId, password, statusType, rewardText, points)
         }
     }
 
