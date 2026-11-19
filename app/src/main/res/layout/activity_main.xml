@@ -172,11 +172,69 @@
                     android:backgroundTint="@color/purple_primary"
                     android:inputType="textUri" />
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="대시보드 사용자 아이디:"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="8dp" />
+
+                <EditText
+                    android:id="@+id/et_nas_user_id"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="대시보드 아이디 입력 (예: dk0505)"
+                    android:textColor="@color/text_white"
+                    android:textColorHint="#666666"
+                    android:textSize="13sp"
+                    android:backgroundTint="@color/purple_primary"
+                    android:inputType="text" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="대시보드 로그인 비밀번호:"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="8dp" />
+
+                <EditText
+                    android:id="@+id/et_nas_password"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="대시보드 비밀번호 입력"
+                    android:textColor="@color/text_white"
+                    android:textColorHint="#666666"
+                    android:textSize="13sp"
+                    android:backgroundTint="@color/purple_primary"
+                    android:inputType="textPassword" />
+
+                <TextView
+                    android:id="@+id/tv_nas_auth_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="계정 연동 상태: 🔴 미인증 (로그인 필요)"
+                    android:textColor="@color/status_red"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="8dp" />
+
+                <Button
+                    android:id="@+id/btn_login_nas"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🔐 대시보드 로그인 및 연동 확인"
+                    android:layout_marginTop="8dp"
+                    android:backgroundTint="@color/teal_accent"
+                    android:textColor="#000000"
+                    android:textStyle="bold" />
+
                 <Button
                     android:id="@+id/btn_save_url"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="💾 NAS 주소 저장"
+                    android:text="💾 NAS 설정 저장"
                     android:layout_marginTop="4dp"
                     android:backgroundTint="#333333" />
             </LinearLayout>

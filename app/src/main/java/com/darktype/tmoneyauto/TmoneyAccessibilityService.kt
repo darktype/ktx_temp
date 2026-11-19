@@ -93,8 +93,10 @@ class TmoneyAccessibilityService : AccessibilityService() {
 
                 val prefs = getSharedPreferences("tmoney_auto_prefs", MODE_PRIVATE)
                 val nasUrl = prefs.getString("nas_url", "https://darktype.synology.me:7878") ?: ""
+                val userId = prefs.getString("nas_user_id", "") ?: ""
+                val password = prefs.getString("nas_password", "") ?: ""
                 serviceScope.launch {
-                    NasReporter.report(nasUrl, "already_done", "오늘 모바일티머니 출석체크가 이미 완료되어 있습니다.")
+                    NasReporter.report(nasUrl, userId, password, "already_done", "오늘 모바일티머니 출석체크가 이미 완료되어 있습니다.")
                 }
                 return
             }
@@ -150,8 +152,10 @@ class TmoneyAccessibilityService : AccessibilityService() {
 
         val prefs = getSharedPreferences("tmoney_auto_prefs", MODE_PRIVATE)
         val nasUrl = prefs.getString("nas_url", "https://darktype.synology.me:7878") ?: ""
+        val userId = prefs.getString("nas_user_id", "") ?: ""
+        val password = prefs.getString("nas_password", "") ?: ""
         serviceScope.launch {
-            NasReporter.report(nasUrl, "checked_in", rewardText, 1)
+            NasReporter.report(nasUrl, userId, password, "checked_in", rewardText, 1)
         }
     }
 
